@@ -2,7 +2,6 @@ import re
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
-from django.shortcuts import get_object_or_404
 from djoser.serializers import UserSerializer as DjoserUserSerializer
 from rest_framework import serializers
 from drf_extra_fields.fields import Base64ImageField
