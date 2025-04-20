@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib import admin
 from recipes.models import Recipe
+from . import models
 
 User = get_user_model()
 
@@ -38,3 +39,4 @@ class UserAdmin(admin.ModelAdmin):
 
 
 admin.site.register(User, UserAdmin)
+admin.site.register(models.Subscription)

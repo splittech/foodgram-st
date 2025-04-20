@@ -1,3 +1,8 @@
+import string
+import random
+import io
+
+from wsgiref.util import FileWrapper
 from django.shortcuts import get_object_or_404, redirect
 from django.http import HttpResponse
 from rest_framework.viewsets import ReadOnlyModelViewSet, ModelViewSet
@@ -5,18 +10,13 @@ from rest_framework.filters import SearchFilter
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.permissions import (IsAuthenticatedOrReadOnly,
                                         IsAuthenticated)
+from django_filters.rest_framework import DjangoFilterBackend
 
-from wsgiref.util import FileWrapper
-import string
-import random
-import io
-
+from foodgram_back.constants import SHORT_LINK_CODE_MAX_LENGTH
 from users.serializers import ShortRecipeSerializer
 from users.pagination import CustomLimitPagination
-
 from . import (permissions,
                serializers,
                filters,
@@ -26,8 +26,7 @@ from . import (permissions,
 
 class IngredientViewSet(ReadOnlyModelViewSet):
     """
-    Вьюсет для получения списка ингредиентов
-    или одного ингредиента по его id.
+    Вьюсет для получения списка ингредиентов или одиночного ингредиента.
     """
     queryset = models.Ingredient.objects.all()
     serializer_class = serializers.IngredientSerializer
@@ -37,38 +36,59 @@ class IngredientViewSet(ReadOnlyModelViewSet):
 
 class RecipeViewSet(ModelViewSet):
     """
-    Вьюсет для работы с моделью рецептов.
+    Вьюсет для работы с рецептами.
     """
     queryset = models.Recipe.objects.all()
-    serializer_class = serializers.RecipeSerializer
     pagination_class = CustomLimitPagination
     permission_classes = (IsAuthenticatedOrReadOnly,
                           permissions.AuthorOrReadOnly)
     filter_backends = (DjangoFilterBackend,)
     filterset_class = filters.RecipeFilter
 
+    def get_serializer_class(self):
+        if self.request.method in ('POST', 'PUT', 'PATCH'):
+            return serializers.RecipeWriteSerializer
+        return serializers.RecipeReadSerializer
+
+    def perform_create(self, serializer):
+
+        recipe = serializer.save(author=self.request.user)
+        read_serializer = serializers.RecipeReadSerializer(
+            recipe, context={'request': self.request}
+        )
+        self.response_data = read_serializer.data
+
     def create(self, request, *args, **kwargs):
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED,
-                        headers=headers)
 
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            self.response_data, status=status.HTTP_201_CREATED, headers=headers
+        )
 
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', None)
+
+        partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data,
-                                         partial=partial)
+
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=partial
+        )
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-        return Response(serializer.data)
 
-    def perform_update(self, serializer):
-        serializer.save()
+        instance = serializer.instance
+        response_serializer = serializers.RecipeReadSerializer(
+            instance,
+            context=self.get_serializer_context()
+        )
+
+        return Response(response_serializer.data)
 
 
 class GetShortLinkView(APIView):
@@ -77,24 +97,22 @@ class GetShortLinkView(APIView):
     """
     def get(self, request, pk):
         recipe = get_object_or_404(models.Recipe, pk=pk)
-        short_link = models.ShortLink.objects.filter(recipe=recipe).first()
-        if not short_link:
-            # Если ссылки нет, то генерируем код.
-            code_list = models.ShortLink.objects.values_list('code', flat=True)
-            code = self.generate_code()
-            while code in code_list:
-                code = self.generate_code()
-            short_link = models.ShortLink.objects.create(recipe=recipe,
-                                                         code=code)
+        short_link, _ = models.ShortLink.objects.get_or_create(
+            recipe=recipe,
+            defaults={'code': self.generate_unique_code()}
+        )
 
         return Response({'short-link': utils.get_short_link(short_link.code)})
 
-    def generate_code(self):
+    @staticmethod
+    def generate_unique_code():
         characters = string.ascii_letters + string.digits
-        code = ''
-        for _ in range(3):
-            code += random.choice(characters)
-        return code
+        code_length = SHORT_LINK_CODE_MAX_LENGTH
+
+        while True:
+            code = ''.join(random.choices(characters, k=code_length))
+            if not models.ShortLink.objects.filter(code=code).exists():
+                return code
 
 
 class ShortLinkView(APIView):
@@ -110,25 +128,40 @@ class ShoppingCartView(APIView):
     """
     Представление для добавления рецепта в список покупок или его удаления.
     """
-    def post(self, request, *args, **kwargs):
-        recipe = get_object_or_404(models.Recipe, id=kwargs.get('recipe_id'))
+    def post(self, request, recipe_id):
+        recipe = get_object_or_404(models.Recipe, id=recipe_id)
+        serializer = serializers.ShoppingCartSerializer(
+            data={
+                'user': request.user.id,
+                'recipe': recipe.id
+            },
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-        if request.user in recipe.users_added_to_shopping_cart.all():
-            return Response({'detail': 'Рецепт уже есть в списке покупок.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            ShortRecipeSerializer(recipe).data,
+            status=status.HTTP_201_CREATED
+        )
 
-        recipe.users_added_to_shopping_cart.add(request.user)
-        serializer = ShortRecipeSerializer(recipe)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def delete(self, request, recipe_id):
+        recipe = get_object_or_404(models.Recipe, id=recipe_id)
+        serializer = serializers.ShoppingCartDeleteSerializer(
+            data={
+                'user': request.user.id,
+                'recipe': recipe.id
+            },
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
 
-    def delete(self, request, *args, **kwargs):
-        recipe = get_object_or_404(models.Recipe, id=kwargs.get('recipe_id'))
-
-        if request.user not in recipe.users_added_to_shopping_cart.all():
-            return Response({'detail': 'Рецепта не было в списке покупок.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        recipe.users_added_to_shopping_cart.remove(request.user)
+        cart_item = get_object_or_404(
+            models.ShoppingCart,
+            user=request.user,
+            recipe_id=recipe_id
+        )
+        cart_item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -140,8 +173,8 @@ class DownloadShoppingCartView(APIView):
 
     def get(self, request, format=None):
         recipes = models.Recipe.objects.filter(
-            users_added_to_shopping_cart=request.user
-        )
+            shoppingcart__user=self.request.user
+        ).prefetch_related('recipes')
 
         # Создаем буфер в памяти.
         buffer = io.BytesIO()
@@ -164,25 +197,38 @@ class FavoriteView(APIView):
     """
     Представление для добавления рецепта в избранное или его удаления.
     """
-    def post(self, request, *args, **kwargs):
-        recipe = get_object_or_404(models.Recipe, id=kwargs.get('recipe_id'))
+    permission_classes = (IsAuthenticated,)
 
-        if request.user in recipe.users_favorited.all():
-            return Response({'detail': 'Рецепт уже находится в избранном.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request, recipe_id):
+        recipe = get_object_or_404(models.Recipe, id=recipe_id)
+        serializer = serializers.FavoriteSerializer(
+            data={
+                'user': request.user.id,
+                'recipe': recipe.id
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
-        recipe.users_favorited.add(request.user)
+        return Response(
+            ShortRecipeSerializer(recipe).data,
+            status=status.HTTP_201_CREATED
+        )
 
-        # Сериализатор для вывода согласно заданию.
-        serializer = serializers.ShortRecipeSerializer(recipe)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def delete(self, request, recipe_id):
+        recipe = get_object_or_404(models.Recipe, id=recipe_id)
+        serializer = serializers.FavoriteDeleteSerializer(
+            data={
+                'user': request.user.id,
+                'recipe': recipe.id
+            },
+        )
+        serializer.is_valid(raise_exception=True)
 
-    def delete(self, request, *args, **kwargs):
-        recipe = get_object_or_404(models.Recipe, id=kwargs.get('recipe_id'))
-
-        if request.user not in recipe.users_favorited.all():
-            return Response({'detail': 'Рецепта и так не было в избранном.'},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        recipe.users_favorited.remove(request.user)
+        favorite_item = get_object_or_404(
+            models.Favorite,
+            user=request.user,
+            recipe_id=recipe_id
+        )
+        favorite_item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

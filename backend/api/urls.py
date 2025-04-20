@@ -44,5 +44,6 @@ urlpatterns = [
     path('recipes/<int:recipe_id>/favorite/', FavoriteView.as_view()),
     # Подписки.
     path('users/subscriptions/', SubscriptionListView.as_view()),
+    path('recipes/<int:recipe_id>/favorite/', FavoriteView.as_view()),
     path('users/<int:user_id>/subscribe/', SubscriptionView.as_view())
 ]
