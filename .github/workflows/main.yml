@@ -67,7 +67,7 @@ jobs:
             set -e
             echo '--- START WORK ON REMOTE SERVER ---'
             echo '--- CHANGE TO PROJECT DIRECTORY ---'
-            cd /home/your_user/foodgram-st/infra || { echo "Directory not found"; exit 1; }
+            cd /home/snego_bro/foodgram-st/infra || { echo "Directory not found"; exit 1; }
             
             echo '--- GIT OPERATIONS ---'
             git pull
