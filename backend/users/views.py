@@ -57,7 +57,6 @@ class UserAvatarView(APIView):
             data=request.data,
         )
         serializer.is_valid(raise_exception=True)
-        print(serializer.is_valid())
         serializer.save()
         return Response(
             {'avatar': request.build_absolute_uri(request.user.avatar.url)},
@@ -98,7 +97,7 @@ class SubscriptionListView(ListAPIView):
 
     def get_queryset(self):
         authors = User.objects.filter(
-            subscribtions__subscriber=self.request.user
+            subscribers__subscriber=self.request.user
         ).prefetch_related('recipes')
 
         return authors

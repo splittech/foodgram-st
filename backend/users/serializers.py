@@ -92,7 +92,7 @@ class ShortRecipeSerializer(serializers.ModelSerializer):
         fields = ('id', 'name', 'image', 'cooking_time')
 
 
-class UserWithRecipesSerializer(serializers.ModelSerializer):
+class UserWithRecipesSerializer(UserSerializer):
     """
     Дополнительный сериализатор для пользователя,
     включающий список рецептов и их количество.
@@ -101,10 +101,8 @@ class UserWithRecipesSerializer(serializers.ModelSerializer):
     recipes_count = serializers.IntegerField(source='recipes.count',
                                              read_only=True)
 
-    class Meta:
-        model = User
-        fields = ('id', 'email', 'username', 'first_name', 'last_name',
-                  'is_subscribed', 'recipes', 'recipes_count', 'avatar')
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ('recipes', 'recipes_count')
 
     def get_recipes(self, obj):
         request = self.context.get('request')

@@ -39,7 +39,6 @@ urlpatterns = [
     # Рецепты и ингридиенты.
     path('', include(router.urls)),
     path('recipes/<int:pk>/get-link/', GetShortLinkView.as_view()),
-    path('s/<str:code>/', ShortLinkView.as_view()),
     # Избранное.
     path('recipes/<int:recipe_id>/favorite/', FavoriteView.as_view()),
     # Подписки.

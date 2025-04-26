@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 
 from users.serializers import UserSerializer
 from . import models
+from foodgram_back.constants import MIN_INGREDIENT_AMOUNT, MIN_COOKING_TIME
 
 User = get_user_model()
 
@@ -45,9 +46,9 @@ class RecipeIngredientWriteSerializer(serializers.ModelSerializer):
         fields = ('id', 'amount')
 
     def validate_amount(self, value):
-        if value <= 0:
+        if value <= MIN_INGREDIENT_AMOUNT:
             raise serializers.ValidationError(
-                'Количество должно быть больше 0.'
+                f'Количество должно быть больше {MIN_INGREDIENT_AMOUNT}.'
             )
         return value
 
@@ -70,23 +71,15 @@ class RecipeReadSerializer(serializers.ModelSerializer):
 
     def get_is_favorited(self, obj):
         request = self.context.get('request')
-        if not request:
+        if not request or not request.user.is_authenticated:
             return False
-
-        return (
-            request.user.is_authenticated
-            and obj.favorite.filter(user=request.user).exists()
-        )
+        return obj.favorite.filter(user=request.user).exists()
 
     def get_is_in_shopping_cart(self, obj):
         request = self.context.get('request')
-        if not request:
+        if not request or not request.user.is_authenticated:
             return False
-
-        return (
-            request.user.is_authenticated
-            and obj.shoppingcart.filter(user=request.user).exists()
-        )
+        return obj.shoppingcart.filter(user=request.user).exists()
 
 
 class RecipeWriteSerializer(serializers.ModelSerializer):
@@ -101,9 +94,9 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
         fields = ('name', 'text', 'cooking_time', 'image', 'ingredients')
 
     def validate_cooking_time(self, value):
-        if value <= 0:
+        if value <= MIN_COOKING_TIME:
             raise serializers.ValidationError(
-                'Время готовки должно быть больше 0.'
+                f'Время готовки должно быть больше {MIN_COOKING_TIME}.'
             )
         return value
 
@@ -148,6 +141,9 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
 
         return instance
 
+    def to_representation(self, instance):
+        return RecipeReadSerializer(instance, context=self.context).data
+
     @staticmethod
     def create_recipe_ingredients(recipe, ingredients_data):
         """
@@ -165,73 +161,81 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
         models.RecipeIngredient.objects.bulk_create(recipe_ingredients)
 
 
-class ShoppingCartSerializer(serializers.ModelSerializer):
+class RecipeUserSerializer(serializers.ModelSerializer):
+    """
+    Базовый сериализатор для обработки запросов на
+    добавление в избранное и список покупок.
+    """
 
     class Meta:
+        fields = ('user', 'recipe')
+
+    def validate(self, data):
+        if self.Meta.model.objects.filter(
+            user=data['user'],
+            recipe=data['recipe']
+        ).exists():
+            raise serializers.ValidationError(
+                {'detail': f'Рецепт уже в {self.Meta.verbose_name}'}
+            )
+        return data
+
+
+class ShoppingCartSerializer(RecipeUserSerializer):
+    """
+    Cериализатор для обработки запросов на добавление рецепта в список покупок.
+    """
+    class Meta(RecipeUserSerializer.Meta):
+        fields = ('user', 'recipe')
         model = models.ShoppingCart
+        verbose_name = 'списке покупок'
+
+
+class FavoriteSerializer(RecipeUserSerializer):
+    """
+    Cериализатор для обработки запросов на добавление рецепта в избранное.
+    """
+    class Meta(RecipeUserSerializer.Meta):
+        fields = ('user', 'recipe')
+        model = models.Favorite
+        verbose_name = 'избранном'
+
+
+class RecipeUserDeleteSerializer(serializers.ModelSerializer):
+    """
+    Базовый сериализатор для обработки запросов на удаление из избранного и
+    списка покупок.
+    """
+
+    class Meta:
         fields = ('user', 'recipe')
 
     def validate(self, data):
-        if models.ShoppingCart.objects.filter(
+        if not self.Meta.model.objects.filter(
             user=data['user'],
             recipe=data['recipe']
         ).exists():
             raise serializers.ValidationError(
-                {'detail': 'Рецепт уже в списке покупок'}
+                {'detail': f'Рецепт и так не был в {self.Meta.verbose_name}'}
             )
         return data
 
 
-class ShoppingCartDeleteSerializer(serializers.ModelSerializer):
-
+class ShoppingCartDeleteSerializer(RecipeUserDeleteSerializer):
+    """
+    Cериализатор для обработки запросов на удаление из списка покупок.
+    """
     class Meta:
+        fields = ('user', 'recipe')
         model = models.ShoppingCart
-        fields = ('user', 'recipe')
-
-    def validate(self, data):
-        if not models.ShoppingCart.objects.filter(
-            user=data['user'],
-            recipe=data['recipe']
-        ).exists():
-            raise serializers.ValidationError(
-                {'detail': 'Рецепт и так не был в списке покупок'}
-            )
-        return data
+        verbose_name = 'списке покупок'
 
 
-class FavoriteSerializer(serializers.ModelSerializer):
-
+class FavoriteDeleteSerializer(RecipeUserDeleteSerializer):
+    """
+    Cериализатор для обработки запросов на удаление из избранного.
+    """
     class Meta:
-        model = models.Favorite
         fields = ('user', 'recipe')
-        extra_kwargs = {
-            'user': {'write_only': True},
-            'recipe': {'write_only': True}
-        }
-
-    def validate(self, data):
-        if models.Favorite.objects.filter(
-            user=data['user'],
-            recipe=data['recipe']
-        ).exists():
-            raise serializers.ValidationError(
-                {'detail': 'Рецепт уже в избранном'}
-            )
-        return data
-
-
-class FavoriteDeleteSerializer(serializers.ModelSerializer):
-
-    class Meta:
         model = models.Favorite
-        fields = ('user', 'recipe')
-
-    def validate(self, data):
-        if not models.Favorite.objects.filter(
-            user=data['user'],
-            recipe=data['recipe']
-        ).exists():
-            raise serializers.ValidationError(
-                {'detail': 'рецепт и так не был в избранном'}
-            )
-        return data
+        verbose_name = 'избранном'

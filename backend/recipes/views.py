@@ -50,45 +50,16 @@ class RecipeViewSet(ModelViewSet):
             return serializers.RecipeWriteSerializer
         return serializers.RecipeReadSerializer
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
     def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
 
-        recipe = serializer.save(author=self.request.user)
-        read_serializer = serializers.RecipeReadSerializer(
-            recipe, context={'request': self.request}
-        )
-        self.response_data = read_serializer.data
-
-    def create(self, request, *args, **kwargs):
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-
-        headers = self.get_success_headers(serializer.data)
-        return Response(
-            self.response_data, status=status.HTTP_201_CREATED, headers=headers
-        )
-
-    def update(self, request, *args, **kwargs):
-
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-
-        serializer = self.get_serializer(
-            instance,
-            data=request.data,
-            partial=partial
-        )
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-
-        instance = serializer.instance
-        response_serializer = serializers.RecipeReadSerializer(
-            instance,
-            context=self.get_serializer_context()
-        )
-
-        return Response(response_serializer.data)
+    def perform_update(self, serializer):
+        serializer.save()
 
 
 class GetShortLinkView(APIView):
@@ -124,18 +95,21 @@ class ShortLinkView(APIView):
         return redirect(f'/recipes/{short_link.recipe.id}')
 
 
-class ShoppingCartView(APIView):
+class RecipeUserView(APIView):
     """
-    Представление для добавления рецепта в список покупок или его удаления.
+    Базовое представление для добавления или удаления рецепта из списка.
     """
+    serializer_class = None
+    delete_serializer_class = None
+    model_class = None
+
     def post(self, request, recipe_id):
         recipe = get_object_or_404(models.Recipe, id=recipe_id)
-        serializer = serializers.ShoppingCartSerializer(
+        serializer = self.serializer_class(
             data={
                 'user': request.user.id,
                 'recipe': recipe.id
             },
-            context={'request': request}
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -147,22 +121,39 @@ class ShoppingCartView(APIView):
 
     def delete(self, request, recipe_id):
         recipe = get_object_or_404(models.Recipe, id=recipe_id)
-        serializer = serializers.ShoppingCartDeleteSerializer(
+        serializer = self.delete_serializer_class(
             data={
                 'user': request.user.id,
                 'recipe': recipe.id
             },
-            context={'request': request}
         )
         serializer.is_valid(raise_exception=True)
 
-        cart_item = get_object_or_404(
-            models.ShoppingCart,
+        item = get_object_or_404(
+            self.model_class,
             user=request.user,
             recipe_id=recipe_id
         )
-        cart_item.delete()
+        item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ShoppingCartView(RecipeUserView):
+    """
+    Представление для добавления рецепта в список покупок или его удаления.
+    """
+    serializer_class = serializers.ShoppingCartSerializer
+    delete_serializer_class = serializers.ShoppingCartDeleteSerializer
+    model_class = models.ShoppingCart
+
+
+class FavoriteView(RecipeUserView):
+    """
+    Представление для добавления рецепта в избранное или его удаления.
+    """
+    serializer_class = serializers.FavoriteSerializer
+    delete_serializer_class = serializers.FavoriteDeleteSerializer
+    model_class = models.Favorite
 
 
 class DownloadShoppingCartView(APIView):
@@ -191,44 +182,3 @@ class DownloadShoppingCartView(APIView):
         return HttpResponse(
             FileWrapper(buffer),
             content_type='application/pdf')
-
-
-class FavoriteView(APIView):
-    """
-    Представление для добавления рецепта в избранное или его удаления.
-    """
-    permission_classes = (IsAuthenticated,)
-
-    def post(self, request, recipe_id):
-        recipe = get_object_or_404(models.Recipe, id=recipe_id)
-        serializer = serializers.FavoriteSerializer(
-            data={
-                'user': request.user.id,
-                'recipe': recipe.id
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-
-        return Response(
-            ShortRecipeSerializer(recipe).data,
-            status=status.HTTP_201_CREATED
-        )
-
-    def delete(self, request, recipe_id):
-        recipe = get_object_or_404(models.Recipe, id=recipe_id)
-        serializer = serializers.FavoriteDeleteSerializer(
-            data={
-                'user': request.user.id,
-                'recipe': recipe.id
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-
-        favorite_item = get_object_or_404(
-            models.Favorite,
-            user=request.user,
-            recipe_id=recipe_id
-        )
-        favorite_item.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
