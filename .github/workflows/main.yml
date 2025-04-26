@@ -65,6 +65,7 @@ jobs:
             private_key: ${{secrets.SSH_PRIVATE_KEY}}
             command: |
               echo '--- START WORK ON REMOTE SERVER ---';
+              sudo su;
               cd ${{ secrets.PROJECT_FOLDER }};
               echo '--- LIST OF FILES ---';
               ls -al;
