@@ -60,23 +60,27 @@ jobs:
       - name: Run command on remote server
         uses: D3rHase/ssh-command-action@v0.2.2
         with:
-            host: ${{secrets.SSH_HOST}}
-            user: ${{secrets.SSH_USER}}
-            private_key: ${{secrets.SSH_PRIVATE_KEY}}
-            command: |
-              echo '--- START WORK ON REMOTE SERVER ---';
-              sudo su;
-              cd ${{ secrets.PROJECT_FOLDER }};
-              echo '--- LIST OF FILES ---';
-              ls -al;
-              echo '--- GIT INFORMATION ---'
-              git co dev;
-              git pull;
-              echo '--- DOCKER OPERATIONS ---';
-              docker-compose down;
-              echo '--- LIST OF DOCKER CONTAINERS AFTER STOPING DOCKER CONTAINERS ---';
-              docker ps;
-              docker-compose --file docker-compose.prod.yml up -d;
-              docker system prune --all --force;
-              echo '--- LIST OF DOCKER CONTAINERS AFTER STARTING DOCKER CONTAINERS ---';
-              docker ps;
+          host: ${{ secrets.SSH_HOST }}
+          user: ${{ secrets.SSH_USER }}
+          private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command: |
+            set -e
+            echo '--- START WORK ON REMOTE SERVER ---'
+            echo '--- CHANGE TO PROJECT DIRECTORY ---'
+            cd /home/your_user/foodgram-st/infra || { echo "Directory not found"; exit 1; }
+            
+            echo '--- GIT OPERATIONS ---'
+            git pull
+            
+            echo '--- DOCKER OPERATIONS ---'
+            sudo docker compose -f docker-compose.yml down
+            echo '--- LIST AFTER STOP ---'
+            sudo docker ps -a
+            
+            echo '--- STARTING CONTAINERS ---'
+            sudo docker compose -f docker-compose.yml up -d --build
+            echo '--- LIST AFTER START ---'
+            sudo docker ps
+            
+            echo '--- CLEANUP ---'
+            sudo docker system prune -af
