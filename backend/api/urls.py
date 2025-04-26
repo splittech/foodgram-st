@@ -11,7 +11,6 @@ from users.views import (UserListCreateView,
 
 from recipes.views import (IngredientViewSet,
                            RecipeViewSet,
-                           ShortLinkView,
                            GetShortLinkView,
                            ShoppingCartView,
                            DownloadShoppingCartView,
