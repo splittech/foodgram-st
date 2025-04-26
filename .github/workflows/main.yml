@@ -57,6 +57,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build_and_push_to_docker_hub
     steps:
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
       - name: Setup SSH Agent
         uses: webfactory/ssh-agent@v0.5.3
         with:
@@ -64,7 +67,7 @@ jobs:
 
       - name: Add SSH key with passphrase
         run: |
-          echo "${{ secrets.SSH_PASSPHRASE }}" | ssh-add -
+          sshpass -p "${{ secrets.SSH_PASSPHRASE }}" ssh-add -
 
       - name: Run command on remote server
         uses: D3rHase/ssh-command-action@v0.2.2
