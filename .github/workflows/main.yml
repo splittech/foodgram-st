@@ -62,6 +62,7 @@ jobs:
         with:
           host: ${{ secrets.SSH_HOST }}
           user: ${{ secrets.SSH_USER }}
+          private_key: ${{secrets.SSH_PRIVATE_KEY}}
           command: |
             echo '--- START WORK ON REMOTE SERVER ---'
             cd foodgram-st/infra
